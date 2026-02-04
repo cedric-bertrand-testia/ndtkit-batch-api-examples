@@ -36,10 +36,31 @@ try {
 
     Write-Host "Message sent successfully!" -ForegroundColor Green
     
-    # Optional: Read response (simple check)
+	# --- WAIT FOR RESPONSE ---
+    $maxWait = 20 
+    while ($client.Available -eq 0 -and $maxWait -gt 0) {
+        Start-Sleep -Milliseconds 100
+        $maxWait--
+    }
+
+    # 8. Read Response
     if ($client.Available -gt 0) {
-        $reader = New-Object System.IO.StreamReader($stream)
-        Write-Host "Response: " $reader.ReadToEnd()
+        # Create a buffer to hold the incoming data
+        $buffer = New-Object byte[] $client.Available
+        $bytesRead = $stream.Read($buffer, 0, $buffer.Length)
+        
+        # Convert bytes to string (UTF-8)
+        # Note: Since the server sends a binary header (Length+Type) before the JSON,
+        # you might see 5 weird characters/symbols at the start of the string.
+        $responseStr = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)
+        
+        Write-Host "------------------------------------------------" -ForegroundColor Cyan
+        Write-Host "SERVER RESPONSE:" -ForegroundColor Yellow
+        Write-Host $responseStr
+        Write-Host "------------------------------------------------" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No response received (Timeout)." -ForegroundColor DarkGray
     }
     
     $client.Close()
