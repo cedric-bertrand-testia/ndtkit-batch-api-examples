@@ -37,30 +37,50 @@ try {
     Write-Host "Message sent successfully!" -ForegroundColor Green
     
 	# --- WAIT FOR RESPONSE ---
-    $maxWait = 20 
-    while ($client.Available -eq 0 -and $maxWait -gt 0) {
+    # Wait until at least 5 bytes (Header) are available
+    $maxWait = 50 
+    while ($client.Available -lt 5 -and $maxWait -gt 0) {
         Start-Sleep -Milliseconds 100
         $maxWait--
     }
 
-    # 8. Read Response
-    if ($client.Available -gt 0) {
-        # Create a buffer to hold the incoming data
-        $buffer = New-Object byte[] $client.Available
-        $bytesRead = $stream.Read($buffer, 0, $buffer.Length)
+	# 8. Read and Parse Response (Matching Python Logic)
+    if ($client.Available -ge 5) {
         
-        # Convert bytes to string (UTF-8)
-        # Note: Since the server sends a binary header (Length+Type) before the JSON,
-        # you might see 5 weird characters/symbols at the start of the string.
-        $responseStr = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $bytesRead)
+        # A. READ LENGTH (First 4 Bytes)
+        $lenBytes = New-Object byte[] 4
+        $bytesRead = $stream.Read($lenBytes, 0, 4)
+        
+        # Convert Big-Endian bytes to Int
+        if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($lenBytes) }
+        $totalLen = [BitConverter]::ToInt32($lenBytes, 0)
+
+        # B. READ TYPE (Next 1 Byte)
+        $typeByte = $stream.ReadByte()
+
+        # C. READ PAYLOAD
+        # Calculate JSON length (Total - 1 byte for Type)
+        $jsonLen = $totalLen - 1
+        
+        # Read the exact number of bytes for the JSON
+        $jsonBytes = New-Object byte[] $jsonLen
+        $bytesRead = 0
+        while ($bytesRead -lt $jsonLen) {
+            $n = $stream.Read($jsonBytes, $bytesRead, $jsonLen - $bytesRead)
+            if ($n -eq 0) { break }
+            $bytesRead += $n
+        }
+        
+        # Decode ONLY the JSON bytes
+        $responseStr = [System.Text.Encoding]::UTF8.GetString($jsonBytes)
         
         Write-Host "------------------------------------------------" -ForegroundColor Cyan
-        Write-Host "SERVER RESPONSE:" -ForegroundColor Yellow
+        Write-Host "SERVER RESPONSE (JSON ONLY):" -ForegroundColor Yellow
         Write-Host $responseStr
         Write-Host "------------------------------------------------" -ForegroundColor Cyan
     }
     else {
-        Write-Host "No response received (Timeout)." -ForegroundColor DarkGray
+        Write-Host "No response received (Timeout or Incomplete Data)." -ForegroundColor DarkGray
     }
     
     $client.Close()
